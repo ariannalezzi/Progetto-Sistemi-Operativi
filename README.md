@@ -1,3 +1,4 @@
+*english version below*
 ## Progetto di Sistemi Operativi 2023/2024
 
 ## Componenti del gruppo:
@@ -99,3 +100,63 @@ all'Attivatore e all'Alimentazione. Gli Atomi ricevono il messaggio di terminazi
 che pone un messaggio con corpo pari a 0 nella coda. Gli atomi quando leggono questo messaggio, prima di terminare, si
 occupano di inserire un nuovo messaggio di terminazione per il prossimo Atomo che leggerà dalla coda di
 messaggi.
+
+
+## Operating Systems Project 2023/2024
+
+
+## Group Members
+- 1 Arianna Lezzi : 947010
+- 2 Christian Lombardozzi : 932948
+- 3 Matteo Naglieri : 930702
+
+
+## Basic Commands to Run the Project
+- make: compiles all the source files and performs the linking with the library file GeneralsUtils. The generated object files are stored in the bin directory
+- make start: executes the Master process
+- make clean: removes all generated object files
+
+## Main Processes in the Project
+- Master
+- Atom
+- Feeder
+- Activator
+
+
+## Master
+The Master process coordinates the simulation workflow. It first reads the configuration parameters from the provided .txt files. Then, it creates a shared memory segment that contains:
+- The initial simulation values
+- The IDs of the semaphore set, the message queue, and the shared memory used for collecting simulation data (Dump)
+After that, the Master creates the other three types of processes through a fork(). Inside the forked process, an execve() call is used to execute the corresponding .c source file, along with a buffer containing the IDs of the shared resources mentioned above, which are required by the processes.
+Once all processes are correctly initialized (synchronized via a semaphore reaching zero), the simulation begins. The Master prints the simulation data every second, reading them from shared memory using a total of 8 semaphores to guarantee maximum parallelism during the dump operations.
+At each print cycle, the Master checks whether a termination condition has occurred. If so, it sends signals to the processes to detach from the shared structures. Finally, the Master itself detaches, prints the reason for termination, and ends the simulation.
+
+
+## Atom
+The Atom process can be created in three different ways: by the Master, by the Feeder, or by another Atom itself.
+#### 1. Created by the Master:
+At startup, the Master spawns N_ATOMI_INIT atoms. For each atom, the Master generates a random atomic number between 1 and N_ATOM_MAX and sends it through a pipe. The child then starts via execve(), receiving the shared memory ID and its atomic number as arguments.
+#### 2. Created by the Feeder:
+Every STEP_ALIMENTAZIONE, the Feeder generates new atoms, assigning them an atomic number through the same pipe-based mechanism used by the Master.
+#### 3. Created by another Atom
+An Atom may split if it receives a split command from the Activator via the message queue. When the Atom reads a message with body 1, it attempts a fork().
+- The split occurs only if the Atom’s atomic number is greater than or equal to the constant MIN_NUM_ATOMICO, defined in the configuration.
+- If the condition is satisfied, the Atom splits: energy is released according to the defined policy, and the parent assigns half of its atomic number to the child.
+- If the condition is not satisfied, the Atom becomes waste (scoria) and terminates.
+All these operations update the Dump using mutual exclusion to safely access shared variables.
+
+## Feeder
+The Feeder process is created by the Master and is responsible for generating N_NUOVI_ATOMI every STEP_ALIMENTAZIONE nanoseconds. This timing is controlled using nanosleep().
+Each time the Feeder creates a new Atom:
+- It updates the counters tracking the number of atoms and the number of feeding operations performed within that second, using the associated semaphores.
+- It assigns an atomic number to the Atom using the same mechanism employed by the Master.
+
+  
+## Activator
+The Activator process, once created by the Master, attaches to shared memory to retrieve the IDs of the message queue and the Dump. It then waits for all processes to be fully initialized (synchronized via a semaphore reaching zero).
+During the simulation, the Activator inserts 10 messages with msg_txt = 1 into the queue every STEP_ATTIVATORE. When read by an Atom, these messages trigger a split.
+When the Activator receives a termination signal, its handler places a message with body 0 into the queue. When read by an Atom, this message instructs it to terminate.
+
+## Termination
+As explained earlier, termination is managed by the Master process. Before removing all shared resources, the Master sends SIGTERM signals to its processes, specifically the Activator and the Feeder.
+Atoms receive their termination message from the Activator, which places a message with body 0 into the message queue. When an Atom reads this message, before terminating, it inserts another termination message into the queue for the next Atom to read.
